@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: E-Commerce Self-Healing DevOps Platform
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        REGION: us-east-1
+        TABLE_NAME: ecom-incidents
+
+Resources:
+
+  # Auth service Lambda
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/auth/
+      Handler: main.lambda_handler
+      FunctionName: ecom-auth-service
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /auth/{proxy+}
+            Method: any
+
+  # Payments service Lambda
+  PaymentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: services/payments/
+      Handler: main.lambda_handler
+      FunctionName: ecom-payments-service
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /payments/{proxy+}
+            Method: any
+
+  # OBSERVE Lambda — triggered every 5 minutes
+  ObserveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: observe/
+      Handler: main.lambda_handler
+      FunctionName: ecom-observe
+      Timeout: 300
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Description: Run OBSERVE every 5 minutes
+
+  # ANALYZE Lambda — triggered by SNS
+  AnalyzeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: analyze/
+      Handler: main.lambda_handler
+      FunctionName: ecom-analyze
+      Timeout: 120
+      Events:
+        SNSTrigger:
+          Type: SNS
+          Properties:
+            Topic: !Ref IncidentTopic
+
+  # SNS Topic — the event bus between pillars
+  IncidentTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ecom-incidents
+
+  # DynamoDB table — stores incidents (FREE)
+  IncidentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ecom-incidents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
