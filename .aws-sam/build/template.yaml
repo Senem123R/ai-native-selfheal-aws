@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: E-Commerce Self-Healing DevOps Platform
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        REGION: us-east-1
+Resources:
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: AuthFunction
+      Handler: main.lambda_handler
+      FunctionName: ecom-auth-service
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: ecom-users
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /auth/{proxy+}
+            Method: any
+    Metadata:
+      SamResourceId: AuthFunction
+  PaymentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: PaymentsFunction
+      Handler: main.lambda_handler
+      FunctionName: ecom-payments-service
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: ecom-payments
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /payments/{proxy+}
+            Method: any
+    Metadata:
+      SamResourceId: PaymentsFunction
+  ObserveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ObserveFunction
+      Handler: main.lambda_handler
+      FunctionName: ecom-observe
+      Timeout: 300
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: ecom-incidents
+      - SNSPublishMessagePolicy:
+          TopicName: ecom-incidents
+      - Statement:
+        - Effect: Allow
+          Action:
+          - logs:FilterLogEvents
+          - logs:DescribeLogGroups
+          - logs:GetLogEvents
+          Resource: '*'
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+    Metadata:
+      SamResourceId: ObserveFunction
+  AnalyzeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: AnalyzeFunction
+      Handler: main.lambda_handler
+      FunctionName: ecom-analyze
+      Timeout: 120
+      Policies:
+      - SNSPublishMessagePolicy:
+          TopicName: ecom-incidents
+      - Statement:
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          Resource: '*'
+      Events:
+        SNSTrigger:
+          Type: SNS
+          Properties:
+            Topic:
+              Ref: IncidentTopic
+    Metadata:
+      SamResourceId: AnalyzeFunction
+  IncidentTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ecom-incidents
+  IncidentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ecom-incidents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ecom-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: user_id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: user_id
+        KeyType: HASH
+  PaymentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ecom-payments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: txn_id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: txn_id
+        KeyType: HASH
