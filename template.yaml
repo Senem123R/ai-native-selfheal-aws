@@ -10,17 +10,18 @@ Globals:
     Environment:
       Variables:
         REGION: us-east-1
-        TABLE_NAME: ecom-incidents
 
 Resources:
 
-  # Auth service Lambda
   AuthFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: services/auth/
       Handler: main.lambda_handler
       FunctionName: ecom-auth-service
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: ecom-users
       Events:
         Api:
           Type: Api
@@ -28,13 +29,15 @@ Resources:
             Path: /auth/{proxy+}
             Method: any
 
-  # Payments service Lambda
   PaymentsFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: services/payments/
       Handler: main.lambda_handler
       FunctionName: ecom-payments-service
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: ecom-payments
       Events:
         Api:
           Type: Api
@@ -42,7 +45,6 @@ Resources:
             Path: /payments/{proxy+}
             Method: any
 
-  # OBSERVE Lambda — triggered every 5 minutes
   ObserveFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -50,14 +52,24 @@ Resources:
       Handler: main.lambda_handler
       FunctionName: ecom-observe
       Timeout: 300
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: ecom-incidents
+        - SNSPublishMessagePolicy:
+            TopicName: ecom-incidents
+        - Statement:
+            - Effect: Allow
+              Action:
+                - logs:FilterLogEvents
+                - logs:DescribeLogGroups
+                - logs:GetLogEvents
+              Resource: '*'
       Events:
         Schedule:
           Type: Schedule
           Properties:
             Schedule: rate(5 minutes)
-            Description: Run OBSERVE every 5 minutes
 
-  # ANALYZE Lambda — triggered by SNS
   AnalyzeFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -65,19 +77,25 @@ Resources:
       Handler: main.lambda_handler
       FunctionName: ecom-analyze
       Timeout: 120
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: ecom-incidents
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
       Events:
         SNSTrigger:
           Type: SNS
           Properties:
             Topic: !Ref IncidentTopic
 
-  # SNS Topic — the event bus between pillars
   IncidentTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: ecom-incidents
 
-  # DynamoDB table — stores incidents (FREE)
   IncidentsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -88,4 +106,28 @@ Resources:
           AttributeType: S
       KeySchema:
         - AttributeName: id
+          KeyType: HASH
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ecom-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+
+  PaymentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ecom-payments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: txn_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: txn_id
           KeyType: HASH
