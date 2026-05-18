@@ -77,14 +77,12 @@ Resources:
       Handler: main.lambda_handler
       FunctionName: ecom-analyze
       Timeout: 120
+      Environment:
+        Variables:
+          OPENROUTER_KEY: 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
       Policies:
         - SNSPublishMessagePolicy:
             TopicName: ecom-incidents
-        - Statement:
-            - Effect: Allow
-              Action:
-                - bedrock:InvokeModel
-              Resource: '*'
       Events:
         SNSTrigger:
           Type: SNS
