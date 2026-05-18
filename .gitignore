@@ -3,4 +3,4 @@ samconfig.toml
 *.env
 .env
 __pycache__/
-*.pyc
+*.pyc.aws-sam/
