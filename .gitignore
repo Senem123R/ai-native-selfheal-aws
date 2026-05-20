@@ -1,0 +1,7 @@
+.aws-sam/
+samconfig.toml
+*.env
+.env
+__pycache__/
+*.pyc.aws-sam/
+frontend/node_modules/

@@ -10,8 +10,22 @@ Globals:
     Environment:
       Variables:
         REGION: us-east-1
+  Api:
+    Cors:
+      AllowMethods: "'POST,GET,OPTIONS'"
+      AllowHeaders: "'Content-Type'"
+      AllowOrigin: "'*'"
 
 Resources:
+
+  MyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'POST,GET,OPTIONS'"
+        AllowHeaders: "'Content-Type'"
+        AllowOrigin: "'*'"
 
   AuthFunction:
     Type: AWS::Serverless::Function
@@ -28,6 +42,7 @@ Resources:
           Properties:
             Path: /auth/{proxy+}
             Method: any
+            RestApiId: !Ref MyApi
 
   PaymentsFunction:
     Type: AWS::Serverless::Function
@@ -44,6 +59,7 @@ Resources:
           Properties:
             Path: /payments/{proxy+}
             Method: any
+            RestApiId: !Ref MyApi
 
   ObserveFunction:
     Type: AWS::Serverless::Function
@@ -69,6 +85,12 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: rate(5 minutes)
+        Api:
+          Type: Api
+          Properties:
+            Path: /observe
+            Method: post
+            RestApiId: !Ref MyApi
 
   AnalyzeFunction:
     Type: AWS::Serverless::Function
@@ -77,14 +99,12 @@ Resources:
       Handler: main.lambda_handler
       FunctionName: ecom-analyze
       Timeout: 120
+      Environment:
+        Variables:
+          OPENROUTER_KEY: REPLACE_WITH_YOUR_KEY
       Policies:
         - SNSPublishMessagePolicy:
             TopicName: ecom-incidents
-        - Statement:
-            - Effect: Allow
-              Action:
-                - bedrock:InvokeModel
-              Resource: '*'
       Events:
         SNSTrigger:
           Type: SNS
