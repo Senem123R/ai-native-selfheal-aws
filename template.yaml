@@ -37,12 +37,12 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: ecom-users
       Events:
-        Api:
+        AuthApi:
           Type: Api
           Properties:
             Path: /auth/{proxy+}
             Method: any
-            RestApiId: !Ref MyApi
+            RestApiId: !Ref ServerlessRestApi
 
   PaymentsFunction:
     Type: AWS::Serverless::Function
@@ -54,12 +54,12 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: ecom-payments
       Events:
-        Api:
+        PayApi:
           Type: Api
           Properties:
             Path: /payments/{proxy+}
             Method: any
-            RestApiId: !Ref MyApi
+            RestApiId: !Ref ServerlessRestApi
 
   ObserveFunction:
     Type: AWS::Serverless::Function
@@ -81,16 +81,20 @@ Resources:
                 - logs:GetLogEvents
               Resource: '*'
       Events:
-        Schedule:
-          Type: Schedule
-          Properties:
-            Schedule: rate(5 minutes)
-        Api:
+        ObservePost:
           Type: Api
           Properties:
             Path: /observe
             Method: post
-            RestApiId: !Ref MyApi
+        IncidentsGet:
+          Type: Api
+          Properties:
+            Path: /incidents
+            Method: get
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
 
   AnalyzeFunction:
     Type: AWS::Serverless::Function
@@ -151,3 +155,57 @@ Resources:
       KeySchema:
         - AttributeName: txn_id
           KeyType: HASH
+
+  # SNS Topic for DECIDE
+  DecideTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ecom-decide
+
+  # SNS Topic for ACT
+  ActTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ecom-act
+
+  # DECIDE Lambda
+  DecideFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: decide/
+      Handler: main.lambda_handler
+      FunctionName: ecom-decide
+      Timeout: 60
+      Environment:
+        Variables:
+          ACT_TOPIC_ARN: !Ref ActTopic
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: ecom-act
+      Events:
+        SNSTrigger:
+          Type: SNS
+          Properties:
+            Topic: !Ref DecideTopic
+
+  # ACT Lambda
+  ActFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: act/
+      Handler: main.lambda_handler
+      FunctionName: ecom-act
+      Timeout: 60
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:UpdateFunctionConfiguration
+                - lambda:GetFunctionConfiguration
+                - lambda:PutFunctionConcurrency
+              Resource: '*'
+      Events:
+        SNSTrigger:
+          Type: SNS
+          Properties:
+            Topic: !Ref ActTopic
