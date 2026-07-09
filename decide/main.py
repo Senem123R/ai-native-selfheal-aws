@@ -44,8 +44,11 @@ def lambda_handler(event, context):
             decision = make_decision(incident, analysis)
             logger.info(f"Decision: {decision}")
 
-            # Send to ACT pillar
-            if ACT_TOPIC and decision['action'] != 'alert_only':
+            
+
+            # ALWAYS send to ACT — even for alert_only
+            # ACT decides what to do (restart OR create Jira ticket)
+            if ACT_TOPIC:
                 sns_client.publish(
                     TopicArn=ACT_TOPIC,
                     Message=json.dumps({
@@ -68,7 +71,7 @@ def make_decision(incident, analysis):
     confidence = float(analysis.get('confidence', 0))
 
     # Low confidence → don't auto-fix
-    if confidence < 0.7:
+    if confidence < 0.9:
         logger.info(f"Confidence too low: {confidence} → alert only")
         return {
             'action': 'alert_only',

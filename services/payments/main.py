@@ -22,7 +22,7 @@ def _process(body):
 
     # FAKE FAILURES — these create CloudWatch errors
     # which OBSERVE will detect and trigger self-healing
-    if random.random() < 0.05:
+    if random.random() < 0.10:
         logger.error("CRITICAL: Payment gateway timeout — connection refused")
         time.sleep(5)
         return _resp(504, {"error": "gateway timeout"})

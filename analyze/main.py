@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import urllib.request
+import boto3
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -47,7 +48,7 @@ Reply ONLY with valid JSON no markdown:
 {{
   "root_cause": "one sentence why this happened",
   "fix_action": "restart OR scale_up OR alert_only",
-  "confidence": 0.85,
+  "confidence": 0.9,
   "explanation": "plain English for the team"
 }}"""
 

@@ -7,7 +7,7 @@ s3_prefix = "ecom-selfheal-aws"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 image_repositories = []
-disable_rollback = true
+disable_rollback = false
 
 [default.global.parameters]
 region = "us-east-1"

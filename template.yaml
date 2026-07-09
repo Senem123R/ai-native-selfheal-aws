@@ -2,6 +2,24 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: E-Commerce Self-Healing DevOps Platform
 
+Parameters:
+  OpenRouterKey:
+    Type: String
+    NoEcho: true # hides it from CloudFormation logs
+    Description: OpenRouter API key for AI analysis
+  JiraUrl:
+    Type: String
+    NoEcho: false
+  JiraEmail:
+    Type: String
+    NoEcho: false
+  JiraToken:
+    Type: String
+    NoEcho: true
+  JiraProject:
+    Type: String
+    Default: ESH
+
 Globals:
   Function:
     Runtime: python3.11
@@ -42,7 +60,7 @@ Resources:
           Properties:
             Path: /auth/{proxy+}
             Method: any
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref MyApi
 
   PaymentsFunction:
     Type: AWS::Serverless::Function
@@ -59,7 +77,7 @@ Resources:
           Properties:
             Path: /payments/{proxy+}
             Method: any
-            RestApiId: !Ref ServerlessRestApi
+            RestApiId: !Ref MyApi
 
   ObserveFunction:
     Type: AWS::Serverless::Function
@@ -68,6 +86,10 @@ Resources:
       Handler: main.lambda_handler
       FunctionName: ecom-observe
       Timeout: 300
+      Environment:                          # ← ADD THIS
+        Variables:                          # ← ADD THIS
+          TABLE_NAME: ecom-incidents        # ← ADD THIS
+          SNS_TOPIC_ARN: !Ref IncidentTopic # ← ADD THIS — KEY FIX!
       Policies:
         - DynamoDBCrudPolicy:
             TableName: ecom-incidents
@@ -86,11 +108,13 @@ Resources:
           Properties:
             Path: /observe
             Method: post
+            RestApiId: !Ref MyApi
         IncidentsGet:
           Type: Api
           Properties:
             Path: /incidents
             Method: get
+            RestApiId: !Ref MyApi
         Schedule:
           Type: Schedule
           Properties:
@@ -105,10 +129,13 @@ Resources:
       Timeout: 120
       Environment:
         Variables:
-          OPENROUTER_KEY: REPLACE_WITH_YOUR_KEY
+          OPENROUTER_KEY: !Ref OpenRouterKey
+          DECIDE_TOPIC_ARN: !Ref DecideTopic
       Policies:
         - SNSPublishMessagePolicy:
             TopicName: ecom-incidents
+        - SNSPublishMessagePolicy:
+            TopicName: ecom-decide
       Events:
         SNSTrigger:
           Type: SNS
@@ -196,6 +223,12 @@ Resources:
       Handler: main.lambda_handler
       FunctionName: ecom-act
       Timeout: 60
+      Environment:
+        Variables:
+          JIRA_URL:     !Ref JiraUrl
+          JIRA_EMAIL:   !Ref JiraEmail
+          JIRA_TOKEN:   !Ref JiraToken
+          JIRA_PROJECT: !Ref JiraProject
       Policies:
         - Statement:
             - Effect: Allow

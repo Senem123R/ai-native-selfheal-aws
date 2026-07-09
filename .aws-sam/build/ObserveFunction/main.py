@@ -11,7 +11,7 @@ logger.setLevel(logging.INFO)
 
 REGION = 'us-east-1'
 TABLE_NAME = os.environ.get('TABLE_NAME', 'ecom-incidents')
-SNS_TOPIC = os.environ.get('SNS_TOPIC_ARN', '')
+SNS_TOPIC = os.environ.get('SNS_TOPIC_ARN', '') #arn:aws:sns:us-east-1:013461378379:ecom-incidents
 
 dynamodb = boto3.resource('dynamodb', region_name=REGION)
 table = dynamodb.Table(TABLE_NAME)
@@ -39,12 +39,26 @@ LOG_GROUPS = [
 def lambda_handler(event, context):
     path = event.get('path', '/')
     method = event.get('httpMethod', 'GET')
-    logger.info(f"Request: {method} {path}")
+    
+    # Check if triggered by EventBridge (scheduled)
+    source = event.get('source', '')
+    detail_type = event.get('detail-type', '')
+    
+    logger.info(f"Triggered by: source={source}, path={path}, method={method}")
 
-    if 'incidents' in path and method == 'GET':
+    # EventBridge scheduled trigger → run observe automatically
+    if source == 'aws.events' or 'Scheduled' in detail_type:
+        logger.info("EventBridge trigger → running OBSERVE automatically")
+        return observe()
+ 
+    # HTTP GET /incidents → return incidents list
+    elif 'incidents' in path and method == 'GET':
         return get_incidents()
+
+    # HTTP POST /observe → manual trigger
     elif 'observe' in path and method == 'POST':
         return observe()
+
     else:
         return {
             'statusCode': 200,

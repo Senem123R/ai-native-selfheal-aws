@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 
 const API = "https://a5dv13ptvc.execute-api.us-east-1.amazonaws.com/Prod"
-const API2 = "https://avultkn7i7.execute-api.us-east-1.amazonaws.com/Prod"
+const API2 = "https://a5dv13ptvc.execute-api.us-east-1.amazonaws.com/Prod"
 
 const SEV_BG = {CRITICAL:"#FCEBEB", HIGH:"#FAEEDA", MEDIUM:"#FFF8E1", LOW:"#EAF3DE"}
 const SEV_TX = {CRITICAL:"#A32D2D", HIGH:"#854F0B", MEDIUM:"#5D4037", LOW:"#3B6D11"}
