@@ -1,6 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: E-Commerce Self-Healing DevOps Platform
+Parameters:
+  OpenRouterKey:
+    Type: String
+    NoEcho: true
+    Description: OpenRouter API key for AI analysis
+  JiraUrl:
+    Type: String
+    NoEcho: false
+  JiraEmail:
+    Type: String
+    NoEcho: false
+  JiraToken:
+    Type: String
+    NoEcho: true
+  JiraProject:
+    Type: String
+    Default: ESH
 Globals:
   Function:
     Runtime: python3.11
@@ -33,7 +50,7 @@ Resources:
       - DynamoDBCrudPolicy:
           TableName: ecom-users
       Events:
-        Api:
+        AuthApi:
           Type: Api
           Properties:
             Path: /auth/{proxy+}
@@ -58,7 +75,7 @@ Resources:
             Path: /payments/{proxy+}
             Method: any
             RestApiId:
-              Ref: ServerlessRestApi
+              Ref: MyApi
     Metadata:
       SamResourceId: PaymentsFunction
   ObserveFunction:
@@ -68,6 +85,11 @@ Resources:
       Handler: main.lambda_handler
       FunctionName: ecom-observe
       Timeout: 300
+      Environment:
+        Variables:
+          TABLE_NAME: ecom-incidents
+          SNS_TOPIC_ARN:
+            Ref: IncidentTopic
       Policies:
       - DynamoDBCrudPolicy:
           TableName: ecom-incidents
@@ -86,11 +108,15 @@ Resources:
           Properties:
             Path: /observe
             Method: post
+            RestApiId:
+              Ref: MyApi
         IncidentsGet:
           Type: Api
           Properties:
             Path: /incidents
             Method: get
+            RestApiId:
+              Ref: MyApi
         Schedule:
           Type: Schedule
           Properties:
@@ -106,10 +132,15 @@ Resources:
       Timeout: 120
       Environment:
         Variables:
-          OPENROUTER_KEY: REPLACE_WITH_YOUR_KEY
+          OPENROUTER_KEY:
+            Ref: OpenRouterKey
+          DECIDE_TOPIC_ARN:
+            Ref: DecideTopic
       Policies:
       - SNSPublishMessagePolicy:
           TopicName: ecom-incidents
+      - SNSPublishMessagePolicy:
+          TopicName: ecom-decide
       Events:
         SNSTrigger:
           Type: SNS
@@ -155,3 +186,66 @@ Resources:
       KeySchema:
       - AttributeName: txn_id
         KeyType: HASH
+  DecideTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ecom-decide
+  ActTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ecom-act
+  DecideFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: DecideFunction
+      Handler: main.lambda_handler
+      FunctionName: ecom-decide
+      Timeout: 60
+      Environment:
+        Variables:
+          ACT_TOPIC_ARN:
+            Ref: ActTopic
+      Policies:
+      - SNSPublishMessagePolicy:
+          TopicName: ecom-act
+      Events:
+        SNSTrigger:
+          Type: SNS
+          Properties:
+            Topic:
+              Ref: DecideTopic
+    Metadata:
+      SamResourceId: DecideFunction
+  ActFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ActFunction
+      Handler: main.lambda_handler
+      FunctionName: ecom-act
+      Timeout: 60
+      Environment:
+        Variables:
+          JIRA_URL:
+            Ref: JiraUrl
+          JIRA_EMAIL:
+            Ref: JiraEmail
+          JIRA_TOKEN:
+            Ref: JiraToken
+          JIRA_PROJECT:
+            Ref: JiraProject
+      Policies:
+      - Statement:
+        - Effect: Allow
+          Action:
+          - lambda:UpdateFunctionConfiguration
+          - lambda:GetFunctionConfiguration
+          - lambda:PutFunctionConcurrency
+          Resource: '*'
+      Events:
+        SNSTrigger:
+          Type: SNS
+          Properties:
+            Topic:
+              Ref: ActTopic
+    Metadata:
+      SamResourceId: ActFunction

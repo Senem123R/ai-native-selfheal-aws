@@ -2,10 +2,13 @@ import json
 import logging
 import os
 import urllib.request
+import boto3
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+sns_client = boto3.client('sns', region_name='us-east-1')
+DECIDE_TOPIC = os.environ.get('DECIDE_TOPIC_ARN', '')
 OPENROUTER_KEY = os.environ.get('OPENROUTER_KEY', '')
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -17,6 +20,19 @@ def lambda_handler(event, context):
         logger.info(f"Analyzing incident: {incident.get('title')}")
         analysis = ask_ai(incident)
         logger.info(f"Analysis result: {json.dumps(analysis)}")
+
+        if DECIDE_TOPIC:
+            sns_client.publish(
+                TopicArn=DECIDE_TOPIC,
+                Message=json.dumps({
+                    'incident': incident,
+                    'analysis': analysis
+                })
+            )
+            logger.info("Sent to DECIDE pillar")
+        else:
+            logger.warning("DECIDE_TOPIC not set — not sending to DECIDE")
+
     return {'statusCode': 200, 'body': json.dumps({'status': 'ok'})}
 
 def ask_ai(incident):
@@ -32,7 +48,7 @@ Reply ONLY with valid JSON no markdown:
 {{
   "root_cause": "one sentence why this happened",
   "fix_action": "restart OR scale_up OR alert_only",
-  "confidence": 0.85,
+  "confidence": 0.9,
   "explanation": "plain English for the team"
 }}"""
 
