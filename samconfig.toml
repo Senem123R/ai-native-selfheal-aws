@@ -11,3 +11,15 @@ disable_rollback = false
 
 [default.global.parameters]
 region = "us-east-1"
+
+[observe.deploy.parameters]
+stack_name = "ecom-observe-framework"
+resolve_s3 = true
+s3_prefix = "ecom-observe-framework"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "SshAllowedIp=\"175.157.185.212/32\" VpcCidr=\"10.0.0.0/16\""
+image_repositories = []
+
+[observe.global.parameters]
+region = "us-east-1"
