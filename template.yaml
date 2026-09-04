@@ -1,24 +1,24 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: E-Commerce Self-Healing DevOps Platform
+Description: >
+  Self-Healing DevOps Platform -- OBSERVE Pillar (Framework Only)
+  Matches the professor's deploy.sh scope exactly: deploys the OBSERVE
+  compute + storage + all 5 pillar topics (pre-provisioned, ready for
+  ANALYZE/DECIDE/ACT/COMMUNICATE to be added later), and nothing else.
+  No business services are defined here -- those belong in a SEPARATE
+  deployment, added independently by whoever's application this
+  framework is pointed at. This template has zero knowledge of any
+  specific client's services, matching the professor's own project,
+  which never named a business service anywhere either.
 
 Parameters:
-  OpenRouterKey:
+  SshAllowedIp:
     Type: String
-    NoEcho: true # hides it from CloudFormation logs
-    Description: OpenRouter API key for AI analysis
-  JiraUrl:
+    Description: Your public IP in CIDR form, e.g. 203.0.113.5/32 -- for the demo EC2 instance's SSH access
+  VpcCidr:
     Type: String
-    NoEcho: false
-  JiraEmail:
-    Type: String
-    NoEcho: false
-  JiraToken:
-    Type: String
-    NoEcho: true
-  JiraProject:
-    Type: String
-    Default: ESH
+    Default: 10.0.0.0/16
+    Description: VPC CIDR range -- adjust to match your actual VPC
 
 Globals:
   Function:
@@ -45,62 +45,44 @@ Resources:
         AllowHeaders: "'Content-Type'"
         AllowOrigin: "'*'"
 
-  AuthFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: services/auth/
-      Handler: main.lambda_handler
-      FunctionName: ecom-auth-service
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: ecom-users
-      Events:
-        AuthApi:
-          Type: Api
-          Properties:
-            Path: /auth/{proxy+}
-            Method: any
-            RestApiId: !Ref MyApi
-
-  PaymentsFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: services/payments/
-      Handler: main.lambda_handler
-      FunctionName: ecom-payments-service
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: ecom-payments
-      Events:
-        PayApi:
-          Type: Api
-          Properties:
-            Path: /payments/{proxy+}
-            Method: any
-            RestApiId: !Ref MyApi
-
+  # ══════════════════════════════════════════════════════════
+  # OBSERVE -- the only compute this template deploys.
+  # No hardcoded service list, no config parameter -- collectors
+  # discover log groups and metric-reporting resources dynamically
+  # on every run, exactly like the professor's own collectors.
+  # ══════════════════════════════════════════════════════════
   ObserveFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: observe/
       Handler: main.lambda_handler
-      FunctionName: ecom-observe
+      FunctionName: self-healing-observe
       Timeout: 300
-      Environment:                          # ← ADD THIS
-        Variables:                          # ← ADD THIS
-          TABLE_NAME: ecom-incidents        # ← ADD THIS
-          SNS_TOPIC_ARN: !Ref IncidentTopic # ← ADD THIS — KEY FIX!
+      Tracing: Active
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref IncidentsTable
+          SNS_TOPIC_ARN: !Ref ObserveTopic
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: ecom-incidents
+            TableName: !Ref IncidentsTable
         - SNSPublishMessagePolicy:
-            TopicName: ecom-incidents
+            TopicName: !GetAtt ObserveTopic.TopicName
         - Statement:
             - Effect: Allow
               Action:
-                - logs:FilterLogEvents
+                # Dynamic discovery permissions -- these are what let
+                # the collectors find resources at runtime instead of
+                # needing a config list. DescribeLogGroups and
+                # ListMetrics are the key ones: "show me everything,"
+                # not "show me these specific named things."
                 - logs:DescribeLogGroups
+                - logs:FilterLogEvents
                 - logs:GetLogEvents
+                - cloudwatch:ListMetrics
+                - cloudwatch:GetMetricStatistics
+                - xray:GetTraceSummaries
+                - xray:BatchGetTraces
               Resource: '*'
       Events:
         ObservePost:
@@ -120,37 +102,11 @@ Resources:
           Properties:
             Schedule: rate(5 minutes)
 
-  AnalyzeFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: analyze/
-      Handler: main.lambda_handler
-      FunctionName: ecom-analyze
-      Timeout: 120
-      Environment:
-        Variables:
-          OPENROUTER_KEY: !Ref OpenRouterKey
-          DECIDE_TOPIC_ARN: !Ref DecideTopic
-      Policies:
-        - SNSPublishMessagePolicy:
-            TopicName: ecom-incidents
-        - SNSPublishMessagePolicy:
-            TopicName: ecom-decide
-      Events:
-        SNSTrigger:
-          Type: SNS
-          Properties:
-            Topic: !Ref IncidentTopic
-
-  IncidentTopic:
-    Type: AWS::SNS::Topic
-    Properties:
-      TopicName: ecom-incidents
-
+  # ── Storage -- direct equivalent of the professor's BigQuery table ──
   IncidentsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: ecom-incidents
+      TableName: self-healing-incidents
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: id
@@ -159,86 +115,119 @@ Resources:
         - AttributeName: id
           KeyType: HASH
 
-  UsersTable:
-    Type: AWS::DynamoDB::Table
+  # ══════════════════════════════════════════════════════════
+  # OPTIONAL: a real EC2 instance so AWS/EC2:CPUUtilization and
+  # AWS/EC2:NetworkIn in the metrics collector's discovery list
+  # have something real to find. This is NOT part of the
+  # professor's design and is not required for the framework to
+  # work -- it's here so those two metric checks are exercised
+  # against genuine data instead of always returning empty.
+  # Delete this whole block freely if you don't want it; the
+  # metrics collector handles either case identically, since
+  # list_metrics() just returns nothing when no EC2 exists.
+  # ══════════════════════════════════════════════════════════
+  DemoSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      TableName: ecom-users
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: user_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: user_id
-          KeyType: HASH
+      GroupDescription: Security group for the demo EC2 instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshAllowedIp
 
-  PaymentsTable:
-    Type: AWS::DynamoDB::Table
+  DemoInstanceRole:
+    Type: AWS::IAM::Role
     Properties:
-      TableName: ecom-payments
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: txn_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: txn_id
-          KeyType: HASH
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeTags
+                  - logs:PutLogEvents
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                Resource: '*'
 
-  # SNS Topic for DECIDE
+  DemoInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref DemoInstanceRole
+
+  DemoInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: ami-0c101f26f147fa7fd
+      IamInstanceProfile: !Ref DemoInstanceProfile
+      SecurityGroupIds:
+        - !Ref DemoSecurityGroup
+      Tags:
+        - Key: Name
+          Value: self-healing-demo-instance
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y amazon-cloudwatch-agent
+          # No specific workload installed here on purpose -- this
+          # instance exists purely so CPUUtilization/NetworkIn have
+          # real data. Put whatever workload you actually want on
+          # it (the earlier self-hosted LLM idea still applies if
+          # you want it doing real work, not just idling).
+
+  # ── All 5 pillar topics -- provisioned upfront, same as the
+  # professor's deploy.sh setup_pubsub_topics step, which creates
+  # observe/analyze/decide/act/communicate topics together even
+  # though only the OBSERVE function is deployed yet. Nothing
+  # subscribes to Analyze/Decide/Act/Communicate topics until
+  # those pillars are actually built -- that's expected, not a bug.
+  # ══════════════════════════════════════════════════════════
+  ObserveTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: self-healing-observe
+
+  AnalyzeTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: self-healing-analyze
+
   DecideTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: ecom-decide
+      TopicName: self-healing-decide
 
-  # SNS Topic for ACT
   ActTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: ecom-act
+      TopicName: self-healing-act
 
-  # DECIDE Lambda
-  DecideFunction:
-    Type: AWS::Serverless::Function
+  CommunicateTopic:
+    Type: AWS::SNS::Topic
     Properties:
-      CodeUri: decide/
-      Handler: main.lambda_handler
-      FunctionName: ecom-decide
-      Timeout: 60
-      Environment:
-        Variables:
-          ACT_TOPIC_ARN: !Ref ActTopic
-      Policies:
-        - SNSPublishMessagePolicy:
-            TopicName: ecom-act
-      Events:
-        SNSTrigger:
-          Type: SNS
-          Properties:
-            Topic: !Ref DecideTopic
+      TopicName: self-healing-communicate
 
-  # ACT Lambda
-  ActFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: act/
-      Handler: main.lambda_handler
-      FunctionName: ecom-act
-      Timeout: 60
-      Environment:
-        Variables:
-          JIRA_URL:     !Ref JiraUrl
-          JIRA_EMAIL:   !Ref JiraEmail
-          JIRA_TOKEN:   !Ref JiraToken
-          JIRA_PROJECT: !Ref JiraProject
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action:
-                - lambda:UpdateFunctionConfiguration
-                - lambda:GetFunctionConfiguration
-                - lambda:PutFunctionConcurrency
-              Resource: '*'
-      Events:
-        SNSTrigger:
-          Type: SNS
-          Properties:
-            Topic: !Ref ActTopic
+Outputs:
+  ApiUrl:
+    Description: Base URL for the OBSERVE API
+    Value: !Sub "https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  ObserveTopicArn:
+    Description: Topic incidents are published to -- ANALYZE subscribes here when built
+    Value: !Ref ObserveTopic
+  DemoInstanceId:
+    Description: The EC2 instance backing AWS/EC2:CPUUtilization and NetworkIn discovery
+    Value: !Ref DemoInstance
